@@ -24,7 +24,7 @@ services:
 
   mongo:
     image: mongo:7
-    ports: ["27017:27017"]
+    ports: ["27018:27017"]   # 電腦上的 27018 → 容器的 27017；避開本機已裝的 MongoDB
     volumes:
       - ./docker/mongo-init.sh:/docker-entrypoint-initdb.d/init.sh:ro
       - ./backup:/backup:ro

@@ -18,7 +18,7 @@ export async function query(text, params = []) {
 }
 
 // MongoDB 連不上時不讓整個網站掛掉：紀錄寫不進去就算了，分析頁會顯示錯誤
-const mongoClient = new MongoClient(process.env.MONGO_URL ?? 'mongodb://localhost:27017', {
+const mongoClient = new MongoClient(process.env.MONGO_URL ?? 'mongodb://localhost:27018', {
   serverSelectionTimeoutMS: 3000,
 });
 let mongo = null;

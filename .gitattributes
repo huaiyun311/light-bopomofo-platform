@@ -1,0 +1,8 @@
+# 腳本一律用 LF 換行：Windows 上 clone 下來也能在 Linux 容器裡執行
+*.sh   text eol=lf
+*.sql  text eol=lf
+*.py   text eol=lf
+*.js   text eol=lf
+*.mjs  text eol=lf
+*.tsv  text eol=lf
+backup/* binary
