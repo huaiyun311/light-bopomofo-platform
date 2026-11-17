@@ -6,10 +6,17 @@ services:
       POSTGRES_DB: lexicon
       POSTGRES_USER: lexicon
       POSTGRES_PASSWORD: lexicon
-    ports: ["5432:5432"]
+    ports: ["5433:5432"]   # 電腦上的 5433 → 容器的 5432；避開本機已裝的 PostgreSQL
     volumes:
       - ./db:/docker-entrypoint-initdb.d:ro
       - pgdata:/var/lib/postgresql/data
+    # 第一次啟動要先跑完 db/*.sql 才算準備好。初始化期間只開 socket、不開 TCP，
+    # 所以用 TCP 檢查，就能等到正式啟動。
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "lexicon", "-d", "lexicon"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
 
   mongo:
     image: mongo:7
