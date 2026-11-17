@@ -12,9 +12,10 @@ import { me } from './routes/me.js';
 import { reports } from './routes/reports.js';
 import { analytics } from './routes/analytics.js';
 import { errorHandler } from './errors.js';
+import { pool } from './db.js';
 
 const app = express();
-app.set('trust proxy', true);
+
 app.use(express.json({ limit: '1mb' }));
 app.use(session({
   secret: process.env.SESSION_SECRET ?? randomBytes(32).toString('hex'),
@@ -28,6 +29,12 @@ app.use('/api', review);  // 以下全部需要編輯身分
 app.use('/api', (req, res) => res.status(404).json({ error: '沒有這個 API' }));
 app.use(express.static(fileURLToPath(new URL('../public', import.meta.url))));
 app.use(errorHandler);
+
+// 待審列表的投稿統計每 10 分鐘重算一次（CONCURRENTLY：重算時不擋讀取）
+setInterval(() => {
+  pool.query('REFRESH MATERIALIZED VIEW CONCURRENTLY candidate_stats')
+    .catch((e) => console.warn(`candidate_stats 更新失敗：${e.message}`));
+}, 10 * 60 * 1000);
 
 const port = Number(process.env.PORT ?? 3000);
 app.listen(port, () => console.log(`輕注音詞庫共享平台：http://localhost:${port}`));

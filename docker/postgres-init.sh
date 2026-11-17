@@ -7,6 +7,8 @@ if ls /backup/lexicon.pgdump.part-* >/dev/null 2>&1; then
   echo "== 還原 PostgreSQL 備份（約 1–2 分鐘）"
   cat /backup/lexicon.pgdump.part-* |
     pg_restore --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --no-owner --exit-on-error
+  # 還原不會帶統計資訊；沒有統計，查詢規劃器會選錯執行計畫（例如待審列表從 8 毫秒變 235 毫秒）
+  psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" -q -c "ANALYZE"
 else
   echo "== 沒有備份，建立空的資料表"
   for f in /db/*.sql; do

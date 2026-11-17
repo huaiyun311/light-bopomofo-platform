@@ -67,7 +67,7 @@ python3 data/replay.py | db -o /dev/null
 
 step "收尾"
 reset_ids
-db -c "ANALYZE"
+db -c "REFRESH MATERIALIZED VIEW candidate_stats" -c "ANALYZE"
 
 step "2d 生成 MongoDB 的紀錄"
 ISO="'YYYY-MM-DD\"T\"HH24:MI:SS.US\"+00:00\"'"

@@ -6,9 +6,11 @@ import { handle, HttpError } from '../errors.js';
 
 export const input = Router();
 
-// 匿名裝置的 UUID 可以隨便造：同一個 IP 每分鐘最多 30 次上傳
+// 匿名裝置的 UUID 可以隨便造：同一個 IP 每分鐘最多 30 次上傳。
+// 本機（伺服器自己所在的機器）不限，bench/concurrency.mjs 才能一次送 100 個請求。
 const recent = new Map();
 function rateLimit(req) {
+  if (['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.ip)) return;
   const now = Date.now();
   const hits = (recent.get(req.ip) ?? []).filter((t) => now - t < 60_000);
   if (hits.length >= 30) throw new HttpError(429, '上傳太頻繁，請稍後再試');

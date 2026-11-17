@@ -1,0 +1,38 @@
+
+== 有無索引的查詢時間（毫秒，中位數）
+                查詢                 |           索引           | 有索引 | 沒有索引 |   差距    
+-------------------------------------+--------------------------+--------+----------+-----------
+ 首字注音 ㄍㄌㄑ                     | lexicon_entries_initials |  0.035 |   91.407 | 2611.6 倍
+ 完整注音 ㄋㄧˇ ㄏ…                  | lexicon_entries_bopomofo |  0.010 |    5.351 | 535.1 倍
+ 詞的一部分 %旅行社%                 | words_text_trgm          |  0.713 |    5.160 | 7.2 倍
+ 詞的一部分 %旅%（單字）             | words_text_trgm          |  4.853 |    4.910 | 1.0 倍
+ 前面常接的詞（200 萬詞組）          | word_pairs_next          |  0.013 |   18.209 | 1400.7 倍
+ 一個詞的各種打法                    | submissions_word         |  0.730 |   11.344 | 15.5 倍
+ 一個詞的票數                        | votes_word               |  0.088 |    2.762 | 31.4 倍
+ 同步個人詞                          | personal_words_sync      |  0.020 |    0.030 | 1.5 倍
+ 待審列表第一頁（materialized view） | candidate_stats_devices  |  0.296 |    3.972 | 13.4 倍
+
+
+== 執行計畫怎麼讀資料
+                查詢                 |                             有索引                             |                  沒有索引                   
+-------------------------------------+----------------------------------------------------------------+---------------------------------------------
+ 首字注音 ㄍㄌㄑ                     | Index Scan using lexicon_entries_initials on lexicon_entries e+| Parallel Seq Scan on lexicon_entries e     +
+                                     | Index Only Scan using words_pkey on words w                    | Index Only Scan using words_pkey on words w
+ 完整注音 ㄋㄧˇ ㄏ…                  | Index Scan using lexicon_entries_bopomofo on lexicon_entries e+| Seq Scan on lexicon_entries e              +
+                                     | Index Only Scan using words_pkey on words w                    | Index Only Scan using words_pkey on words w
+ 詞的一部分 %旅行社%                 | Bitmap Heap Scan on words w                                   +| Seq Scan on words w
+                                     | Bitmap Index Scan on words_text_trgm                           | 
+ 詞的一部分 %旅%（單字）             | Seq Scan on words w                                            | Seq Scan on words w
+ 前面常接的詞（200 萬詞組）          | Index Scan using words_text_key on words                      +| Index Scan using words_text_key on words   +
+                                     | Bitmap Heap Scan on word_pairs p                              +| Parallel Seq Scan on word_pairs p
+                                     | Bitmap Index Scan on word_pairs_next                           | 
+ 一個詞的各種打法                    | Index Scan using words_text_key on words                      +| Index Scan using words_text_key on words   +
+                                     | Bitmap Heap Scan on submissions                               +| Parallel Seq Scan on submissions
+                                     | Bitmap Index Scan on submissions_word                          | 
+ 一個詞的票數                        | Index Scan using words_text_key on words                      +| Index Scan using words_text_key on words   +
+                                     | Index Scan using votes_word on votes                           | Seq Scan on votes
+ 同步個人詞                          | Index Scan using personal_words_sync on personal_words         | Bitmap Heap Scan on personal_words         +
+                                     |                                                                | Bitmap Index Scan on personal_words_pkey
+ 待審列表第一頁（materialized view） | Index Scan using candidate_stats_devices on candidate_stats c +| Seq Scan on candidate_stats c              +
+                                     | Index Scan using word_reviews_pkey on word_reviews r           | Seq Scan on word_reviews r
+

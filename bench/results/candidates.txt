@@ -1,0 +1,37 @@
+== 待審列表第一頁（毫秒，中位數）
+                 寫法                 |   毫秒   | 比 B 快  |           說明           
+--------------------------------------+----------+----------+--------------------------
+ A. 全部 JOIN 再 GROUP BY             | 1485.892 | 0.5 倍   | 慢，而且使用次數算錯
+ B. 各自彙總再 JOIN                   |  679.754 | 1.0 倍   | 正確，每次都重算 95 萬筆
+ C. materialized view＋即時狀態與票數 |    2.592 | 262.3 倍 | 投稿數字最多晚 10 分鐘
+ （C 的代價）重算 materialized view   |  512.292 |          | 每 10 分鐘在背景跑一次
+
+
+== A 為什麼算錯：國旅券的使用次數
+ 正確  | A 的結果 | 票數 
+-------+----------+------
+ 27097 | 21216951 |  783
+
+
+== B 的瓶頸：每次都要把 95 萬筆投稿依詞排好、去掉同一台裝置的重複，再計數
+                                                      QUERY PLAN                                                       
+-----------------------------------------------------------------------------------------------------------------------
+ GroupAggregate (actual time=2.288..582.743 rows=20340 loops=1)
+   Group Key: s.word_id
+   ->  Incremental Sort (actual time=2.193..536.395 rows=948689 loops=1)
+         Sort Key: s.word_id, s.device_id
+         Presorted Key: s.word_id
+         Full-sort Groups: 9325  Sort Method: quicksort  Average Memory: 28kB  Peak Memory: 28kB
+         Pre-sorted Groups: 4658  Sort Method: quicksort  Average Memory: 261kB  Peak Memory: 265kB
+         ->  Nested Loop (actual time=2.081..428.954 rows=948689 loops=1)
+               ->  Index Scan using submissions_word on submissions s (actual time=0.004..268.736 rows=948689 loops=1)
+               ->  Memoize (actual time=0.000..0.000 rows=1 loops=948689)
+                     Cache Key: s.device_id
+                     Cache Mode: logical
+                     Hits: 941806  Misses: 6883  Evictions: 0  Overflows: 0  Memory Usage: 861kB
+                     ->  Index Only Scan using devices_pkey on devices d (actual time=0.000..0.000 rows=1 loops=6883)
+                           Index Cond: (device_id = s.device_id)
+                           Heap Fetches: 0
+ Planning Time: 0.068 ms
+ Execution Time: 583.364 ms
+
