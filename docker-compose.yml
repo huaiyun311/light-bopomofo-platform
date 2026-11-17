@@ -1,0 +1,22 @@
+# docker compose up 會啟動兩個資料庫；第一次啟動時依檔名順序執行 db/ 裡的 .sql。
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: lexicon
+      POSTGRES_USER: lexicon
+      POSTGRES_PASSWORD: lexicon
+    ports: ["5432:5432"]
+    volumes:
+      - ./db:/docker-entrypoint-initdb.d:ro
+      - pgdata:/var/lib/postgresql/data
+
+  mongo:
+    image: mongo:7
+    ports: ["27017:27017"]
+    volumes:
+      - mongodata:/data/db
+
+volumes:
+  pgdata:
+  mongodata:
