@@ -1,4 +1,4 @@
-# docker compose up 會啟動兩個資料庫；第一次啟動時依檔名順序執行 db/ 裡的 .sql。
+# docker compose up 會啟動兩個資料庫。第一次啟動時，backup/ 裡有備份就自動還原（見 docker/*-init.sh）。
 services:
   postgres:
     image: postgres:16
@@ -8,20 +8,25 @@ services:
       POSTGRES_PASSWORD: lexicon
     ports: ["5433:5432"]   # 電腦上的 5433 → 容器的 5432；避開本機已裝的 PostgreSQL
     volumes:
-      - ./db:/docker-entrypoint-initdb.d:ro
+      - ./docker/postgres-init.sh:/docker-entrypoint-initdb.d/init.sh:ro
+      - ./db:/db:ro
+      - ./backup:/backup:ro
       - pgdata:/var/lib/postgresql/data
-    # 第一次啟動要先跑完 db/*.sql 才算準備好。初始化期間只開 socket、不開 TCP，
-    # 所以用 TCP 檢查，就能等到正式啟動。
+    # 第一次啟動要先還原備份或建好資料表才算準備好。初始化期間只開 socket、不開 TCP，
+    # 所以用 TCP 檢查，就能等到正式啟動。還原要幾分鐘，start_period 期間的失敗不算數。
     healthcheck:
       test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "lexicon", "-d", "lexicon"]
       interval: 2s
       timeout: 3s
-      retries: 60
+      retries: 30
+      start_period: 10m
 
   mongo:
     image: mongo:7
     ports: ["27017:27017"]
     volumes:
+      - ./docker/mongo-init.sh:/docker-entrypoint-initdb.d/init.sh:ro
+      - ./backup:/backup:ro
       - mongodata:/data/db
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
