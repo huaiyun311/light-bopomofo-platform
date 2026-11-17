@@ -5,3 +5,4 @@ __pycache__/
 .DS_Store
 # 原始資料下載後放這裡，不進 git
 data/raw/
+data/build/
