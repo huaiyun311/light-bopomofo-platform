@@ -94,7 +94,12 @@ def main():
         f"({MAINTAINER}, 'maintainer@lightbopomofo.test', {q(pw)}, '輕注音維護者', 'editor', "
         "'2026-10-15 00:00:00+08');\n")
 
-    head, generated, tail, stats = generate.build(pw)
+    head, generated, tail, decisions, stats = generate.build(pw)
+    # 審核歷程交給 generate_mongo.py 存進 MongoDB（PostgreSQL 只留每個詞最後一次的決定）
+    (HERE / "build").mkdir(exist_ok=True)
+    with open(HERE / "build" / "review_history.tsv", "w", encoding="utf-8") as f:
+        for t, text, status, editor in decisions:
+            f.write(f"{t.isoformat()}\t{text}\t{status}\t{editor}\n")
     out.write(head)
 
     # 真實事件與生成事件合在同一條時間軸；同一時間「建立版本」排最前面

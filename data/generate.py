@@ -254,7 +254,7 @@ def copy_block(target, lines):
 # ==================== 主程式 ====================
 
 def build(password_hash):
-    """回傳 (開頭的 SQL, 事件清單 [(時間, SQL)], 結尾的 SQL, 統計)"""
+    """回傳 (開頭的 SQL, 事件清單 [(時間, SQL)], 結尾的 SQL, 審核決定 [(時間, 詞, 結果, 編輯)], 統計)"""
     global PASSWORD_HASH
     PASSWORD_HASH = password_hash
     lex = Lexicon()
@@ -335,8 +335,10 @@ def build(password_hash):
     # ---------- 2. 審核：加入、不收、封鎖 ----------
     by_text = {c["text"]: c for c in modern + real + moe + junk}
     decided = {}  # 詞 → 決定時間
+    decisions = []  # (時間, 詞, 結果, 編輯)：另外存進 MongoDB 當審核歷程
     for c in real:
         decided[c["text"]] = c["deadline"] + timedelta(hours=2)
+        decisions.append((decided[c["text"]], c["text"], "approved", 1))
 
     good = sorted((c for c in modern + moe if c["text"] in first_seen and c["text"] not in DEMO_PENDING
                    and (c["kind"] == "modern" or c["rank"] < 4000)),
@@ -350,7 +352,9 @@ def build(password_hash):
                 continue
             decided[c["text"]] = t
             readings = json.dumps([{"bopomofo": c["reading"], "frequency": _frequency(c)}], ensure_ascii=False)
-            events.append((t, _approve_sql(c["text"], rng.choice(people.editors), readings, t)))
+            editor = rng.choice(people.editors)
+            decisions.append((t, c["text"], "approved", editor))
+            events.append((t, _approve_sql(c["text"], editor, readings, t)))
     stats["加入（生成）"] = sum(1 for c in good if c["text"] in decided)
 
     low = [c for c in moe if c["rank"] >= 6000 and c["text"] in first_seen]
@@ -365,7 +369,9 @@ def build(password_hash):
                 break
             decided[c["text"]] = t
             n_rejected += 1
-            events.append((t, _decide_sql(c["text"], rng.choice(people.editors), "rejected", t)))
+            editor = rng.choice(people.editors)
+            decisions.append((t, c["text"], "rejected", editor))
+            events.append((t, _decide_sql(c["text"], editor, "rejected", t)))
         day += timedelta(days=1)
     stats["不收"] = n_rejected
 
@@ -376,7 +382,9 @@ def build(password_hash):
             if t < END:
                 decided[c["text"]] = t
                 n_blocked += 1
-                events.append((t, _decide_sql(c["text"], rng.choice(people.editors), "blocked", t)))
+                editor = rng.choice(people.editors)
+                decisions.append((t, c["text"], "blocked", editor))
+                events.append((t, _decide_sql(c["text"], editor, "blocked", t)))
     stats["封鎖"] = n_blocked
 
     # ---------- 3. 投票：只在詞待審期間 ----------
@@ -456,7 +464,7 @@ def build(password_hash):
     head = people.users_copy() + people.devices_copy(version_at)
     tail, tail_stats = _tail(lex, people, modern, removed | {e[0] for e in lex.entries if e[1] in retired_real})
     stats.update(tail_stats)
-    return head, events, tail, stats
+    return head, events, tail, sorted(decisions), stats
 
 
 def _tail(lex, people, modern, inactive):

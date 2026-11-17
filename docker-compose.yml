@@ -23,6 +23,11 @@ services:
     ports: ["27017:27017"]
     volumes:
       - mongodata:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
 
 volumes:
   pgdata:
