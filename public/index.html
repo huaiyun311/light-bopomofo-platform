@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>輕注音詞庫</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23256f5c'/><text x='16' y='23' font-size='18' text-anchor='middle' fill='white'>ㄑ</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="#/search"><span class="mark">ㄑ</span>輕注音詞庫</a>
+    <nav id="nav"></nav>
+    <div id="account" class="account"></div>
+  </header>
+  <main id="view"></main>
+  <div id="toast" class="toast" hidden></div>
+
+  <dialog id="login">
+    <form method="dialog" class="login">
+      <h2>登入</h2>
+      <label>Email<input name="email" type="email" required autocomplete="username"></label>
+      <label>密碼<input name="password" type="password" required autocomplete="current-password"></label>
+      <p class="error" hidden></p>
+      <div class="row end">
+        <button type="button" value="cancel" class="ghost">取消</button>
+        <button type="submit" class="primary">登入</button>
+      </div>
+      <p class="hint">示範帳號（密碼都是 demo1234）：<br>
+        編輯 <code>editor@lightbopomofo.test</code>、<code>editor3@lightbopomofo.test</code><br>
+        一般使用者 <code>user@lightbopomofo.test</code></p>
+    </form>
+  </dialog>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

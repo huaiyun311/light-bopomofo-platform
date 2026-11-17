@@ -1,4 +1,5 @@
-# docker compose up 會啟動兩個資料庫。第一次啟動時，backup/ 裡有備份就自動還原（見 docker/*-init.sh）。
+# docker compose up 會啟動兩個資料庫和網頁伺服器（http://localhost:3000）。
+# 第一次啟動時，backup/ 裡有備份就自動還原（見 docker/*-init.sh）。
 services:
   postgres:
     image: postgres:16
@@ -33,6 +34,17 @@ services:
       interval: 2s
       timeout: 5s
       retries: 30
+
+  web:
+    build: { context: ., dockerfile: server/Dockerfile }
+    ports: ["3000:3000"]
+    environment:
+      DATABASE_URL: postgres://lexicon:lexicon@postgres:5432/lexicon
+      MONGO_URL: mongodb://mongo:27017
+      SESSION_SECRET: change-me-in-production
+    depends_on:
+      postgres: { condition: service_healthy }
+      mongo: { condition: service_healthy }
 
 volumes:
   pgdata:

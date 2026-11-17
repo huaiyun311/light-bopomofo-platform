@@ -6,3 +6,4 @@ __pycache__/
 # 原始資料下載後放這裡，不進 git
 data/raw/
 data/build/
+server/node_modules/

@@ -1,0 +1,15 @@
+{
+  "name": "light-bopomofo-platform-server",
+  "private": true,
+  "type": "module",
+  "description": "輕注音詞庫共享平台的後端：JSON API＋提供 public/ 的網頁",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "4.21.2",
+    "express-session": "1.18.1",
+    "mongodb": "6.12.0",
+    "pg": "8.13.1"
+  }
+}
