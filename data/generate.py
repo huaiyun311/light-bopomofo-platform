@@ -36,7 +36,8 @@ N_APP_DEVICES = 7400
 N_WEB_DEVICES = 600
 N_MOE = 20000
 N_JUNK = 300
-N_REPORTS = 3000
+N_REPORTS = 3000        # 針對新酷音詞庫的詞條
+N_REPORTS_NEW = 150     # 針對使用者投稿加入、已發布的詞條（品質較不穩，被回報的比例較高）
 DEMO_PENDING = {"國旅券", "普發"}  # demo 要用，保持待審
 # 每個草稿版本裡生成的「加入」個數；8.0 另有 9 個真實的；9.0 留一個名額給 demo
 APPROVALS = {"3.0": 80, "4.0": 10, "5.0": 20, "6.0": 30, "7.0": 3, "7.1": 15, "8.0": 191, "9.0": 199}
@@ -343,6 +344,7 @@ def build(password_hash):
     good = sorted((c for c in modern + moe if c["text"] in first_seen and c["text"] not in DEMO_PENDING
                    and (c["kind"] == "modern" or c["rank"] < 4000)),
                   key=lambda c: (c["kind"] != "modern", -(c.get("share") or 0), c.get("rank", 0)))
+    approved_live = []  # 已發布的生成新詞：之後可能被回報
     for version, opened, closed in windows:
         times = sorted(between(opened + timedelta(minutes=5), closed - timedelta(minutes=5))
                        for _ in range(APPROVALS.get(version, 0)))
@@ -355,6 +357,8 @@ def build(password_hash):
             editor = rng.choice(people.editors)
             decisions.append((t, c["text"], "approved", editor))
             events.append((t, _approve_sql(c["text"], editor, readings, t)))
+            if closed < END - timedelta(days=1):
+                approved_live.append((c, closed))
     stats["加入（生成）"] = sum(1 for c in good if c["text"] in decided)
 
     low = [c for c in moe if c["rank"] >= 6000 and c["text"] in first_seen]
@@ -429,7 +433,17 @@ def build(password_hash):
             continue
         kind = rng.choices(("wrong_reading", "not_word", "offensive"), (40, 45, 15))[0]
         reports.append((t, uid, entry_id, kind, freq))
-    reports.sort()
+    # 使用者投稿加入的詞：發布之後才回報得到；詞條代號重演時才產生，所以用詞和讀音查
+    for c, released in rng.sample(approved_live, min(N_REPORTS_NEW, len(approved_live))):
+        t = between(released + timedelta(hours=1), END - timedelta(hours=1))
+        uid = people.voter_before(t)
+        if uid is None:
+            continue
+        ref = (f"(SELECT e.entry_id FROM lexicon_entries e JOIN words w USING (word_id) "
+               f"WHERE w.text = '{c['text']}' AND e.bopomofo = '{c['reading']}')")
+        kind = rng.choices(("wrong_reading", "not_word", "offensive"), (35, 55, 10))[0]
+        reports.append((t, uid, ref, kind, _frequency(c)))
+    reports.sort(key=lambda r: r[0])
     removed = set()
     n_handled = 0
     for report_id, (t, uid, entry_id, kind, freq) in enumerate(reports, 1):
@@ -452,7 +466,7 @@ def build(password_hash):
                 new_freq = str(max(0, round(freq * rng.choice((0.3, 0.5, 1.5, 2.0)))))
                 if new_freq == str(freq):
                     new_freq = str(freq + 10)
-            else:
+            elif isinstance(entry_id, int):
                 removed.add(entry_id)
             sql = (f"SELECT resolve_report({report_id}, {editor}, '{choice}', "
                    f"(SELECT row_version FROM lexicon_entries WHERE entry_id = {entry_id}), {new_freq}, NULL, '{ts(h)}');")

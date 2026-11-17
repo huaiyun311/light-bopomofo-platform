@@ -2,7 +2,7 @@
 # 從頭建立正式資料庫 lexicon：清空 → 載入 db/*.sql → 匯入資料。
 # 用法：bash data/import.sh
 # 會清掉 lexicon 裡現有的所有資料。
-set -eu
+set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # 預設連到 docker compose 的 PostgreSQL；設定 PSQL 可以改連別的（例如 PSQL="psql -d lexicon"）

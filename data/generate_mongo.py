@@ -9,7 +9,8 @@
 
 選字的規則
   - 只能選到當時已經發布、而且這台裝置的輸入法版本已經有的詞條；停用的詞條發布停用後就選不到
-  - 詞頻越高越常被選，名次也越前面；新加入的詞詞頻較低，常在後面才被選到
+  - 詞頻越高越常被選；名次＝同樣打法的候選裡，詞頻比它高的有幾個（再加一點雜訊）
+    所以同音詞多、詞頻又不高的詞，常要翻到後面才選得到
   - 約 3% 是詞庫沒有的詞（使用者逐字組出來），entry_id 為 null
 """
 import bisect
@@ -78,16 +79,24 @@ def main():
     users = [(int(r[0]), parse(r[1])) for r in read_csv("pg_users.csv")]
     pending = [r[0] for r in read_csv("pg_pending_readings.csv")]
     word_ids = {r[1]: int(r[0]) for r in read_csv("pg_decided_words.csv")}
-    max_log = math.log(max(e[3] for e in entries) + 2)
 
     def version_at(t):
         i = bisect.bisect_right([p for p, _ in releases], t)
         return releases[max(i - 1, 0)][1]
 
+    # 同一種打法（首字注音、不打聲調的完整注音…）會跳出哪些候選：存每組的詞頻（負值，方便二分搜尋）
+    competitors = {}
+    for _, _, reading, freq, _, stop in entries:
+        if stop:
+            continue
+        syls = [x.rstrip("ˊˇˋ˙") for x in reading.split(" ")]
+        for key in {"".join(x[0] for x in syls), "".join(syls), syls[0] + "".join(x[0] for x in syls[1:])}:
+            competitors.setdefault(key, []).append(-freq)
+    for group in competitors.values():
+        group.sort()
+
     # ---------- selection_events ----------
-    # 新加入的詞條雖然詞頻低，但剛好是大家想打的新詞，所以權重另外加成
-    added = {e[0] for e in entries if e[4] > releases[0][0] + timedelta(minutes=1)}
-    cum = cumulative((e[3] + 1) ** 0.8 * (6 if e[0] in added else 1) for e in entries)
+    cum = cumulative((e[3] + 1) ** 0.8 for e in entries)
     dev_cum = cumulative(max(1.0, (last - first).total_seconds() / 3600) for _, first, last in devices)
     n = 0
     with open(BUILD / "selection_events.ndjson", "w", encoding="utf-8") as f:
@@ -105,11 +114,12 @@ def main():
                 entry_id, text, reading, freq, start, stop = entries[pick(cum)]
                 if start > seen or (stop and stop <= t):
                     continue  # 這台裝置當時還沒有、或已經停用的詞條
-                p = 0.15 + 0.75 * math.log(freq + 2) / max_log   # 詞頻越高越可能是第一名
-                rank = 1
-                while rng.random() > p and rank < 30:
-                    rank += 1
-                doc = {"device_id": device_id, "app_version": app, "typed": typed_for(reading),
+                typed = typed_for(reading)
+                # 名次：候選窗依詞頻排序，同樣打法、詞頻比它高的詞條有幾個，它就排第幾名後面
+                group = competitors.get(typed)
+                rank = 1 + (bisect.bisect_left(group, -freq) if group else 0)
+                rank = max(1, min(rank + rng.choice((-1, 0, 0, 0, 1)), 60))
+                doc = {"device_id": device_id, "app_version": app, "typed": typed,
                        "entry_id": entry_id, "rank": rank, "shown": max(rank, rng.randint(5, 9)),
                        "ts": mongo_date(t)}
             f.write(json.dumps(doc, ensure_ascii=False, separators=(",", ":")) + "\n")
