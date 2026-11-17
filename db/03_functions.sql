@@ -308,3 +308,32 @@ BEGIN
 
   RETURN jsonb_build_object('version', r.version, 'added', added, 'removed', removed, 'reweighted', reweighted);
 END $$;
+
+
+-- ==================== 8. 維護詞庫：編輯直接新增詞條 ====================
+-- 不經過投稿與審核，編輯自己加一個詞（例如輕注音 1.0 加入的「什麼意思」）。
+-- 跟加入新詞一樣先鎖版本、占一個名額；來源記為「編輯」。
+CREATE FUNCTION add_entry(
+  p_text text, p_bopomofo text, p_frequency integer, p_editor bigint,
+  p_at timestamptz DEFAULT now()
+) RETURNS bigint
+LANGUAGE plpgsql AS $$
+DECLARE
+  r releases := lock_draft();
+  w bigint;
+  new_entry bigint;
+BEGIN
+  IF used_quota(r.release_id) >= r.max_new_words THEN
+    RAISE EXCEPTION '版本 % 的新詞名額已滿', r.version USING ERRCODE = 'LB002';
+  END IF;
+
+  INSERT INTO words (text) VALUES (p_text) ON CONFLICT DO NOTHING;
+  SELECT word_id INTO w FROM words WHERE text = p_text;
+
+  INSERT INTO lexicon_entries (word_id, bopomofo, frequency, source_id, status, updated_by, updated_at)
+  VALUES (w, p_bopomofo, p_frequency, source_id_of('編輯'), 'staged', p_editor, p_at)
+  RETURNING entry_id INTO new_entry;
+  INSERT INTO release_changes (release_id, entry_id, action, new_frequency)
+  VALUES (r.release_id, new_entry, 'add', p_frequency);
+  RETURN new_entry;
+END $$;
