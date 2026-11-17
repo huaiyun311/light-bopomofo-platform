@@ -25,7 +25,7 @@ cd light-bopomofo-platform
 docker compose up -d --build
 ```
 
-第一次啟動會從 `backup/` 自動還原兩個資料庫，**約需 2 到 5 分鐘**，指令會等到資料庫準備好才結束。完成後打開 **http://localhost:3000**。
+第一次啟動會從 `backup/` 自動還原兩個資料庫，**約需 2 到 5 分鐘**，指令會等到資料庫準備好才結束。完成後打開 http://localhost:3000。
 
 會用到電腦上的連接埠 3000（網頁）、5433（PostgreSQL）、27018（MongoDB）。如果被其他程式占用，請改 `docker-compose.yml` 裡 `ports` 冒號左邊的數字。
 
