@@ -5,7 +5,7 @@
 
 事件來源
   - data/real_events.tsv：輕注音的 10 個真實版本與詞庫調整（2b）
-  - 之後加上生成的帳號、投稿、投票、審核、回報（2c）
+  - data/generate.py：生成的帳號、裝置、投稿、投票、審核、回報、個人詞、詞庫包（2c）
 
 用法：python3 data/replay.py | psql …
 """
@@ -13,8 +13,11 @@ import csv
 import hashlib
 import json
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
+
+import generate
 
 HERE = Path(__file__).parent
 MAINTAINER = 1  # 輕注音維護者，真實版本都由他建立與發布
@@ -82,23 +85,30 @@ def read_real_events():
 
 
 def main():
+    began = time.time()
     out = sys.stdout
+    pw = password_hash("demo1234", b"lightbopomofo-01")  # 所有測試帳號的密碼都是 demo1234
     out.write("BEGIN;\n")
     out.write(
         "INSERT INTO users (user_id, email, password_hash, display_name, role, created_at) VALUES "
-        f"({MAINTAINER}, 'maintainer@lightbopomofo.test', "
-        f"{q(password_hash('demo1234', b'lightbopomofo-01'))}, '輕注音維護者', 'editor', "
+        f"({MAINTAINER}, 'maintainer@lightbopomofo.test', {q(pw)}, '輕注音維護者', 'editor', "
         "'2026-10-15 00:00:00+08');\n")
 
-    events = read_real_events()
-    # 同一時間的事件：建立版本排最前面（要先有草稿才能加詞）
-    events.sort(key=lambda e: (datetime.fromisoformat(e["at"]), e["event"] != "create_release"))
-    for e in events:
-        out.write(f"-- {e['at']} {e['event']} {e['version']} {e['text']}\n")
-        out.write(HANDLERS[e["event"]](e) + "\n")
+    head, generated, tail, stats = generate.build(pw)
+    out.write(head)
 
+    # 真實事件與生成事件合在同一條時間軸；同一時間「建立版本」排最前面
+    events = [(datetime.fromisoformat(e["at"]), e["event"] != "create_release", HANDLERS[e["event"]](e))
+              for e in read_real_events()]
+    events += [(t, True, sql) for t, sql in generated]
+    events.sort(key=lambda e: (e[0], e[1]))
+    for _, _, sql in events:
+        out.write(sql + "\n")
+
+    out.write(tail)
     out.write("COMMIT;\n")
-    print(f"   重演 {len(events)} 個事件", file=sys.stderr)
+    print(f"   產生 {len(events):,} 個事件，花 {time.time() - began:.0f} 秒", file=sys.stderr)
+    print("   " + "、".join(f"{k} {v:,}" for k, v in stats.items()), file=sys.stderr)
 
 
 if __name__ == "__main__":

@@ -16,3 +16,6 @@ get() {  # get 網址 檔名
 }
 get "https://raw.githubusercontent.com/chewing/libchewing-data/$TSI_COMMIT/dict/chewing/tsi.csv" tsi.csv
 get "https://raw.githubusercontent.com/nvlznn/light-bopomofo/$LB_COMMIT/crates/lightbopomofo-core/word-pairs.tsv" word-pairs.tsv
+# 教育部《重編國語辭典修訂本》（CC BY-ND 3.0 TW），g0v 整理的 JSON：只取詞和注音，當候選新詞
+MOE_COMMIT=a6dc997417507eb510fc29822bc514de2c92728c
+get "https://raw.githubusercontent.com/g0v/moedict-data/$MOE_COMMIT/dict-revised.json.xz" dict-revised.json.xz

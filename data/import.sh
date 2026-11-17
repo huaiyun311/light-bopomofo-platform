@@ -55,7 +55,7 @@ copy word_pairs "word_id, next_word_id, pmi" word_pairs.csv
 
 reset_ids
 
-step "2b 重演真實版本"
+step "2b、2c 重演歷史（真實版本＋生成資料）"
 python3 data/replay.py | db -o /dev/null
 
 step "收尾"

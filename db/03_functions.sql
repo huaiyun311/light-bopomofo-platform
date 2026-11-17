@@ -40,6 +40,19 @@ RETURN (SELECT source_id FROM sources WHERE name = p_name);
 -- 一次上傳一整批：{"text": "國旅券", "typed": "ㄍㄌㄑ", "count": 3}
 -- 不合格的詞（含英數、太長、被封鎖）略過，不讓整批失敗；回傳收下與略過的筆數。
 -- count 是輸入法自己累計的總次數，所以保留看過的最大值，並用 LEAST 封頂在 1,000,000。
+
+-- 一批上傳裡合格的詞；同一批裡重複的合併成一筆
+CREATE FUNCTION valid_upload(p_words jsonb)
+RETURNS TABLE (text text, typed text, count integer)
+LANGUAGE sql IMMUTABLE AS $$
+  SELECT w.text, w.typed, LEAST(max(w.count), 1000000)
+    FROM jsonb_to_recordset(p_words) AS w(text text, typed text, count integer)
+   WHERE w.text ~ '^[㐀-䶿一-鿿豈-﫿𠀀-𲎯]{1,20}$'
+     AND w.typed ~ '^[ㄅ-ㄩˉˊˇˋ˙]{1,60}$'
+     AND w.count >= 1
+   GROUP BY w.text, w.typed
+$$;
+
 CREATE FUNCTION upload_words(
   p_device uuid, p_platform text, p_app text, p_words jsonb, p_at timestamptz DEFAULT now()
 ) RETURNS jsonb
@@ -54,34 +67,24 @@ BEGIN
     SET app_version = EXCLUDED.app_version,
         last_synced_at = GREATEST(devices.last_synced_at, EXCLUDED.last_synced_at);
 
-  -- 合格的詞；同一批裡重複的合併成一筆
-  CREATE TEMP TABLE upload ON COMMIT DROP AS
-  SELECT text, typed, LEAST(max(count), 1000000) AS count
-    FROM jsonb_to_recordset(p_words) AS w(text text, typed text, count integer)
-   WHERE text ~ '^[㐀-䶿一-鿿豈-﫿𠀀-𲎯]{1,20}$'
-     AND typed ~ '^[ㄅ-ㄩˉˊˇˋ˙]{1,60}$'
-     AND count >= 1
-   GROUP BY text, typed;
-
   -- 兩台裝置同時上傳同一個新詞：ON CONFLICT DO NOTHING，不會撞 UNIQUE
-  INSERT INTO words (text) SELECT DISTINCT text FROM upload ON CONFLICT DO NOTHING;
+  INSERT INTO words (text) SELECT DISTINCT u.text FROM valid_upload(p_words) u ON CONFLICT DO NOTHING;
 
   -- 詞庫還沒有的詞才進待審
   INSERT INTO word_reviews (word_id)
-  SELECT w.word_id FROM words w JOIN (SELECT DISTINCT text FROM upload) u USING (text)
+  SELECT w.word_id FROM words w JOIN (SELECT DISTINCT u.text FROM valid_upload(p_words) u) u USING (text)
    WHERE NOT EXISTS (SELECT 1 FROM lexicon_entries e WHERE e.word_id = w.word_id AND e.status <> 'retired')
   ON CONFLICT DO NOTHING;
 
   -- 被封鎖的詞由 trigger 略過
   INSERT INTO submissions (device_id, word_id, typed, use_count, first_seen, last_seen)
   SELECT p_device, w.word_id, u.typed, u.count, p_at, p_at
-    FROM upload u JOIN words w USING (text)
+    FROM valid_upload(p_words) u JOIN words w USING (text)
   ON CONFLICT (device_id, word_id, typed) DO UPDATE
     SET use_count = GREATEST(submissions.use_count, EXCLUDED.use_count),
         last_seen = GREATEST(submissions.last_seen, EXCLUDED.last_seen);
   GET DIAGNOSTICS accepted = ROW_COUNT;
 
-  DROP TABLE upload;
   RETURN jsonb_build_object('accepted', accepted, 'skipped', total - accepted);
 END $$;
 
