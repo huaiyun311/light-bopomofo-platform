@@ -1,6 +1,6 @@
 // ③ 我的：裝置、回報、個人詞、詞庫包訂閱；以及輸入法同步個人詞用的 API
 import { Router } from 'express';
-import { query } from '../db.js';
+import { query, transaction } from '../db.js';
 import { requireUser } from '../auth.js';
 import { handle, HttpError } from '../errors.js';
 
@@ -21,7 +21,85 @@ me.get('/devices/:deviceId/personal-words', handle(async (req, res) => {
   res.json({ words, next_since: new Date(Date.now() - 60_000) });
 }));
 
+// POST /api/devices/<uuid>/personal-words  {"words": [{"text", "bopomofo", "status": "active" | "deleted"}]}
+// 輸入法把這台裝置上新增、刪除的個人詞上傳。以「使用者、詞、讀音」為單位（R19），後到的覆蓋先到的；
+// 刪除只把 status 改成 deleted，其他裝置下次 GET 時就會拿到這個刪除標記。
+// 格式不對的（含英數、注音不合法）略過，不讓整批失敗，與分享新詞的做法相同。
+me.post('/devices/:deviceId/personal-words', handle(async (req, res) => {
+  const [device] = await query('SELECT user_id FROM devices WHERE device_id = $1', [req.params.deviceId]);
+  if (!device?.user_id) throw new HttpError(404, '這台裝置還沒綁定帳號');
+  const { words } = req.body;
+  if (!Array.isArray(words) || words.length > 500) throw new HttpError(400, 'words 必須是陣列，最多 500 個');
+  // 只收格式正確的：詞 1–20 個漢字、讀音是以空格分隔的注音音節（與 words、personal_words 的 domain 相同）
+  const valid = words
+    .map((w) => ({ text: String(w?.text ?? '').trim(), bopomofo: String(w?.bopomofo ?? '').trim().replace(/\s+/g, ' '),
+                   status: w?.status ?? 'active' }))
+    .filter((w) => /^[㐀-䶿一-鿿豈-﫿\u{20000}-\u{323AF}]{1,20}$/u.test(w.text)
+      && /^[ㄅ-ㄩˊˇˋ˙]+( [ㄅ-ㄩˊˇˋ˙]+)*$/.test(w.bopomofo) && w.bopomofo.length <= 100
+      && ['active', 'deleted'].includes(w.status));
+  // 同一批裡同一個詞＋讀音出現多次，以最後一次為準
+  const latest = [...new Map(valid.map((w) => [`${w.text} ${w.bopomofo}`, w])).values()];
+  await transaction(async (db) => {
+    await db.query(
+      `INSERT INTO words (text) SELECT DISTINCT text FROM jsonb_to_recordset($1::jsonb) AS x(text text)
+       ON CONFLICT DO NOTHING`, [JSON.stringify(latest)]);
+    await db.query(
+      `INSERT INTO personal_words (user_id, word_id, bopomofo, status)
+       SELECT $1::bigint, w.word_id, x.bopomofo, x.status
+         FROM jsonb_to_recordset($2::jsonb) AS x(text text, bopomofo text, status text)
+         JOIN words w USING (text)
+       ON CONFLICT (user_id, word_id, bopomofo) DO UPDATE SET status = EXCLUDED.status, updated_at = now()`,
+      [device.user_id, JSON.stringify(latest)]);
+    await db.query('UPDATE devices SET last_synced_at = greatest(last_synced_at, now()) WHERE device_id = $1',
+      [req.params.deviceId]);
+  });
+  res.json({ accepted: valid.length, skipped: words.length - valid.length });
+}));
+
+// GET /api/devices/<uuid>/packs：這台裝置的帳號訂閱中、而且上架中的詞庫包，連同上線中的詞條一起下載。
+// 詞庫包沒有修改時間，所以每次回傳完整內容；包被下架或取消訂閱，就不會出現在清單裡，輸入法據此移除。
+me.get('/devices/:deviceId/packs', handle(async (req, res) => {
+  const [device] = await query('SELECT user_id FROM devices WHERE device_id = $1', [req.params.deviceId]);
+  if (!device?.user_id) throw new HttpError(404, '這台裝置還沒綁定帳號');
+  const packs = await query(
+    `SELECT p.pack_id, p.name,
+            coalesce(json_agg(json_build_object('text', w.text, 'bopomofo', e.bopomofo, 'frequency', e.frequency)
+                              ORDER BY w.text) FILTER (WHERE e.entry_id IS NOT NULL), '[]') AS entries
+       FROM subscriptions s
+       JOIN packs p ON p.pack_id = s.pack_id AND p.status = 'published'
+       LEFT JOIN pack_entries pe ON pe.pack_id = p.pack_id
+       LEFT JOIN lexicon_entries e ON e.entry_id = pe.entry_id AND e.status = 'active'
+       LEFT JOIN words w ON w.word_id = e.word_id
+      WHERE s.user_id = $1 AND s.status = 'active'
+      GROUP BY p.pack_id
+      ORDER BY p.name`, [device.user_id]);
+  res.json({ packs });
+}));
+
 me.use('/me', requireUser);
+
+// ---------- 網頁分享新詞 ----------
+// 計劃書表一：網頁投稿視為平台為「網頁」的裝置。每個帳號最多一台網頁裝置（devices_one_web_per_user），
+// 第一次投稿時建立、直接綁在這個帳號；之後跟輸入法一樣呼叫 upload_words()，規則（R4–R6）完全相同。
+me.post('/me/submissions', handle(async (req, res) => {
+  const text = String(req.body.text ?? '').trim();
+  const typed = String(req.body.typed ?? '').replace(/\s+/g, '');
+  if (!/^[㐀-䶿一-鿿豈-﫿\u{20000}-\u{323AF}]{1,20}$/u.test(text)) throw new HttpError(400, '詞要是 1 到 20 個漢字，不能有英數或符號');
+  if (!/^[ㄅ-ㄩˉˊˇˋ˙]{1,60}$/.test(typed)) throw new HttpError(400, '請輸入你打這個詞用的注音（首字或完整都可以）');
+  const [inLexicon] = await query(
+    `SELECT 1 FROM lexicon_entries e JOIN words w USING (word_id) WHERE w.text = $1 AND e.status = 'active'`, [text]);
+  if (inLexicon) throw new HttpError(409, '詞庫裡已經有這個詞了');
+
+  await query(
+    `INSERT INTO devices (device_id, user_id, platform) VALUES (gen_random_uuid(), $1, 'web')
+     ON CONFLICT (user_id) WHERE platform = 'web' DO NOTHING`, [req.user.user_id]);
+  const [{ device_id: device }] = await query(
+    `SELECT device_id FROM devices WHERE user_id = $1 AND platform = 'web'`, [req.user.user_id]);
+  const [{ upload_words: result }] = await query(
+    'SELECT upload_words($1, $2, NULL, $3)', [device, 'web', JSON.stringify([{ text, typed, count: 1 }])]);
+  if (result.accepted === 0) throw new HttpError(409, '這個詞已被編輯封鎖，不再接受投稿');
+  res.json(result);
+}));
 
 // ---------- 裝置 ----------
 me.get('/me/devices', handle(async (req, res) => {
