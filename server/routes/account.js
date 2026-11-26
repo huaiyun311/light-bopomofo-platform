@@ -27,13 +27,17 @@ account.post('/logout', (req, res) => {
 });
 
 account.post('/register', handle(async (req, res) => {
-  const { email, password, display_name: name } = req.body;
-  if (!email || !password || String(password).length < 8) {
-    throw new HttpError(400, '請填寫 email，密碼至少 8 個字元');
-  }
+  const email = String(req.body.email ?? '').trim();
+  const password = String(req.body.password ?? '');
+  const name = String(req.body.display_name ?? '').trim() || email.split('@')[0].slice(0, 30);
+  if (!/^[^@\s]+@[^@\s]+$/.test(email) || email.length > 254) throw new HttpError(400, '請填寫正確的 email');
+  if (password.length < 8) throw new HttpError(400, '密碼至少 8 個字元');
+  if ([...name].length > 30) throw new HttpError(400, '顯示名稱最多 30 個字');   // R1
   const [user] = await query(
-    `INSERT INTO users (email, password_hash, display_name) VALUES (lower($1), $2, $3) RETURNING user_id`,
-    [email, hashPassword(String(password)), name || String(email).split('@')[0].slice(0, 30)]);
+    `INSERT INTO users (email, password_hash, display_name) VALUES (lower($1), $2, $3)
+     ON CONFLICT (email) DO NOTHING RETURNING user_id`,
+    [email, hashPassword(password), name]);
+  if (!user) throw new HttpError(409, '這個 email 已經註冊過');
   req.session.userId = user.user_id;
   res.json({ user: await currentUser(req) });
 }));

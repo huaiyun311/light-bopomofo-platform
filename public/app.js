@@ -88,11 +88,27 @@ function login() {
   const dialog = document.getElementById('login');
   const form = dialog.querySelector('form');
   const error = form.querySelector('.error');
-  error.hidden = true;
+  const { password, display_name: name } = form.elements;
+  // 同一個視窗切換「登入」與「註冊」；每次打開都從登入開始
+  let registering = false;
+  const draw = () => {
+    form.querySelector('h2').textContent = registering ? '註冊' : '登入';
+    form.querySelector('[type=submit]').textContent = registering ? '註冊' : '登入';
+    form.querySelector('[value=switch]').textContent = registering ? '已經有帳號，改用登入' : '註冊新帳號';
+    form.querySelector('.hint').hidden = registering;
+    name.closest('label').hidden = !registering;
+    password.autocomplete = registering ? 'new-password' : 'current-password';
+    if (registering) password.minLength = 8;
+    else password.removeAttribute('minlength');
+    error.hidden = true;
+  };
+  draw();
+  form.querySelector('[value=switch]').onclick = () => { registering = !registering; draw(); };
   form.onsubmit = async (e) => {
     e.preventDefault();
     try {
-      ({ user } = await api('/login', { method: 'POST', body: Object.fromEntries(new FormData(form)) }));
+      ({ user } = await api(registering ? '/register' : '/login', { method: 'POST', body: Object.fromEntries(new FormData(form)) }));
+      form.reset();
       dialog.close();
       route();
     } catch (err) {
@@ -163,8 +179,11 @@ function searchView(root) {
     const kind = h('select', {}, h('option', { value: 'wrong_reading' }, '讀音錯誤'),
       h('option', { value: 'not_word' }, '不是一個詞'), h('option', { value: 'offensive' }, '冒犯性內容'));
     const note = h('input', { placeholder: '補充說明（選填）', maxlength: 200 });
-    const editor = user?.role === 'editor' && entry.status === 'active';
+    const isEditor = user?.role === 'editor';
+    const editor = isEditor && entry.status === 'active';
     const freq = h('input', { type: 'number', min: 0, value: entry.frequency, style: 'width:110px' });
+    const reading = h('input', { class: 'grow bopomofo', placeholder: '另一個讀音，音節空一格' });
+    const newFreq = h('input', { type: 'number', min: 0, value: entry.frequency, 'aria-label': '新讀音的詞頻', style: 'width:110px' });
     side.replaceChildren(h('div', { class: 'panel stack' },
       h('div', {}, h('div', { class: 'big' }, entry.text), h('div', { class: 'bopomofo muted' }, entry.bopomofo)),
       h('div', { class: 'row' }, h('span', { class: 'chip ok' }, STATUS[entry.status]),
@@ -178,6 +197,8 @@ function searchView(root) {
       editor && h('div', {}, h('h2', {}, '維護（寫進草稿版本）'), h('div', { class: 'row' }, freq,
         h('button', { onclick: () => change('reweight') }, '調詞頻'),
         h('button', { class: 'danger', onclick: () => change('remove') }, '停用'))),
+      isEditor && h('div', {}, h('h2', {}, '新增讀音（寫進草稿版本，占一個名額）'), h('div', { class: 'row' }, reading, newFreq,
+        h('button', { onclick: addReading }, '新增讀音'))),
       user && h('div', {}, h('h2', {}, '回報這個詞條'), h('div', { class: 'stack' }, kind, note,
         h('button', { onclick: report }, '送出回報'))),
       !user && h('p', { class: 'muted' }, '登入後可以回報錯誤。')));
@@ -190,6 +211,12 @@ function searchView(root) {
       const ok = await attempt(() => api(`/lexicon/${id}/change`, {
         method: 'POST', body: { action, new_frequency: action === 'reweight' ? Number(freq.value) : null, row_version: entry.row_version },
       }), action === 'remove' ? '已排入草稿版本：停用' : '已排入草稿版本：調詞頻');
+      if (ok) showEntry(id);
+    }
+    async function addReading() {
+      const ok = await attempt(() => api('/lexicon', {
+        method: 'POST', body: { text: entry.text, bopomofo: reading.value, frequency: newFreq.value },
+      }), `已排入草稿版本：新增「${entry.text}」的讀音`);
       if (ok) showEntry(id);
     }
   }
@@ -603,13 +630,16 @@ function analyticsView(root) {
             h('tr', {}, h('th', {}, '詞'), h('th', { class: 'num' }, '使用次數'), h('th', { class: 'num' }, '淨票')),
             list.map((r) => h('tr', {}, h('td', {}, r.text), h('td', { class: 'num' }, fmt(r.uses)), h('td', { class: 'num' }, fmt(r.net_votes))))))))),
 
-      section('3. 各來源被回報的比例', '哪個來源的詞條品質最需要注意：每千筆詞條收到幾筆回報、處理過的回報有多少成立。',
+      section('3. 各來源被回報的比例與類型', '哪個來源的詞條品質最需要注意、問題出在哪：每千筆詞條收到幾筆回報、各類型占幾成、處理過的回報有多少成立。',
         ['PostgreSQL'], 'sources', ({ rows }) => {
           const max = Math.max(...rows.map((r) => r.per_thousand));
+          const share = (n, total) => h('td', { class: 'num' }, total ? `${fmt(n)}（${pct(n / total)}）` : '—');
           return h('table', {},
-            h('tr', {}, h('th', {}, '來源'), h('th', { class: 'num' }, '詞條'), h('th', { class: 'num' }, '回報'), h('th', {}, '每千筆回報'), h('th', { class: 'num' }, '成立比例')),
+            h('tr', {}, h('th', {}, '來源'), h('th', { class: 'num' }, '詞條'), h('th', { class: 'num' }, '回報'), h('th', {}, '每千筆回報'),
+              h('th', { class: 'num' }, '讀音錯誤'), h('th', { class: 'num' }, '不是詞'), h('th', { class: 'num' }, '冒犯'), h('th', { class: 'num' }, '成立比例')),
             rows.map((r) => h('tr', {}, h('td', {}, r.source), h('td', { class: 'num' }, fmt(r.entries)), h('td', { class: 'num' }, fmt(r.reports)),
               h('td', {}, h('div', { class: 'row' }, meter(r.per_thousand, max), h('span', { class: 'num' }, r.per_thousand))),
+              share(r.wrong_reading, r.reports), share(r.not_word, r.reports), share(r.offensive, r.reports),
               h('td', { class: 'num' }, r.resolved_pct == null ? '—' : `${r.resolved_pct}%`))));
         }),
 

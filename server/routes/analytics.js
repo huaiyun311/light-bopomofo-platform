@@ -61,8 +61,8 @@ analytics.get('/analytics/gap', handle(async (req, res) => {
 }));
 
 /**
- * 3. 各來源被回報的比例（PostgreSQL）
- * 哪個來源的詞條品質最差：每千筆詞條收到幾筆回報、回報成立的比例。
+ * 3. 各來源被回報的比例與類型（PostgreSQL）
+ * 哪個來源的詞條品質最差、差在哪裡：每千筆詞條收到幾筆回報、三種回報類型各幾筆、回報成立的比例。
  */
 analytics.get('/analytics/sources', handle(async (req, res) => {
   res.json({ rows: await query(`
@@ -70,6 +70,9 @@ analytics.get('/analytics/sources', handle(async (req, res) => {
            count(DISTINCT e.entry_id) AS entries,
            count(r.report_id) AS reports,
            round(1000.0 * count(r.report_id) / count(DISTINCT e.entry_id), 2) AS per_thousand,
+           count(r.report_id) FILTER (WHERE r.kind = 'wrong_reading') AS wrong_reading,
+           count(r.report_id) FILTER (WHERE r.kind = 'not_word') AS not_word,
+           count(r.report_id) FILTER (WHERE r.kind = 'offensive') AS offensive,
            count(r.report_id) FILTER (WHERE r.status = 'resolved') AS resolved,
            round(100.0 * count(r.report_id) FILTER (WHERE r.status = 'resolved')
                  / nullif(count(r.report_id) FILTER (WHERE r.status <> 'open'), 0), 1) AS resolved_pct
