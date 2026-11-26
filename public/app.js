@@ -480,7 +480,7 @@ function meView(root) {
     body.replaceChildren(
       h('h2', {}, '刪除帳號'),
       h('p', { class: 'muted', style: 'margin:0' },
-        '刪除後無法復原：email 與顯示名稱會被清空，裝置解除綁定，個人詞與訂閱會從你的裝置移除。過去的投票與回報紀錄會保留（不顯示你的名字），但票不再計入排序。'),
+        '刪除後無法復原：email 與顯示名稱會被清空，你的裝置下次同步時會移除個人詞與詞庫包，之後可以綁定到別的帳號。過去的投票與回報紀錄會保留（不顯示你的名字），但票不再計入排序。'),
       h('div', { class: 'row' }, password, h('button', { class: 'danger', onclick: async () => {
         if (!confirm('確定要刪除帳號？這個動作無法復原。')) return;
         if (await attempt(() => api('/me/delete', { method: 'POST', body: { password: password.value } }), '帳號已刪除')) {
@@ -518,7 +518,7 @@ function reportsView(root) {
         h('td', {}, r.text, h('div', { class: 'bopomofo muted' }, r.bopomofo)),
         h('td', { class: 'nowrap' }, KIND[r.kind], r.open_on_entry > 1 && h('span', { class: 'chip warn', style: 'margin-left:6px' }, `${r.open_on_entry} 人回報`)),
         h('td', { class: 'muted nowrap' }, r.source),
-        h('td', { class: 'muted nowrap' }, status === 'open' ? date(r.created_at) : `${r.status === 'resolved' ? '修正' : '駁回'}・${r.handler}`)))));
+        h('td', { class: 'muted nowrap' }, status === 'open' ? date(r.created_at) : `${r.status === 'resolved' ? '修正' : '駁回'}・${r.handler ?? '已刪除的帳號'}`)))));
   }
 
   async function load() {
@@ -544,7 +544,7 @@ function reportsView(root) {
       h('div', {}, h('div', { class: 'big' }, r.text), h('div', { class: 'bopomofo muted' }, r.bopomofo)),
       h('div', { class: 'row' }, h('span', { class: 'chip warn' }, KIND[r.kind]), h('span', { class: 'chip' }, r.source),
         h('span', { class: 'chip' }, `詞頻 ${fmt(r.frequency)}`)),
-      h('div', { class: 'muted' }, `${r.reporter}・${date(r.created_at)}`),
+      h('div', { class: 'muted' }, `${r.reporter ?? '已刪除的帳號'}・${date(r.created_at)}`),
       r.note && h('div', {}, `「${r.note}」`),
       h('div', {}, h('h2', {}, '回報成立'), h('div', { class: 'stack' },
         h('div', { class: 'row' }, freq, h('button', { onclick: () => resolve('reweight', { new_frequency: Number(freq.value) }) }, '調詞頻')),

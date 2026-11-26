@@ -68,6 +68,8 @@ curl -X POST http://localhost:3000/api/words -H 'content-type: application/json'
 | `POST /api/devices/<uuid>/personal-words` | 上傳這台裝置新增或刪除的個人詞：`{"words":[{"text":"周緯倫","bopomofo":"ㄓㄡ ㄨㄟˇ ㄌㄨㄣˊ","status":"active"}]}` |
 | `GET /api/devices/<uuid>/packs` | 下載訂閱中、上架中的詞庫包與它們的詞條 |
 
+停權帳號的裝置不能同步（403）。帳號刪除後，裝置仍可取回刪除標記（回應帶 `account_deleted: true`）和空的詞庫包清單，但不能再上傳；這台裝置可以改綁到別的帳號。
+
 ### 把資料還原成初始狀態
 
 教學會改到資料。以下兩行會刪掉資料庫，再從備份重新還原：
